@@ -1,0 +1,57 @@
+import { listGroups, listMembers } from './groupService';
+import { listExpenses } from './expenseService';
+import { calculateBalances, totalExpenses } from '../algorithms/calculateBalances';
+import { getCurrentUserName } from './settingsService';
+
+/**
+ * Aggregates totals across every group for the dashboard. Since the app has
+ * no login, the "current user" is matched by display name (case-insensitive)
+ * against each group's member list — a member named the same as the
+ * configured user name is treated as "me" in that group.
+ */
+export function getDashboardSummary() {
+  const currentUserName = getCurrentUserName();
+  const groups = listGroups();
+
+  let totalExpenseAmount = 0;
+  let myPaid = 0;
+  let myOwed = 0; // what I owe others
+  let owedToMe = 0; // what others owe me
+  const recentExpenses = [];
+
+  for (const group of groups) {
+    const members = listMembers(group.id);
+    const expenses = listExpenses(group.id);
+    totalExpenseAmount += totalExpenses(expenses);
+
+    for (const e of expenses) {
+      recentExpenses.push({ ...e, groupId: group.id, groupName: group.name });
+    }
+
+    if (!currentUserName) continue;
+    const me = members.find((m) => m.name.toLowerCase() === currentUserName.toLowerCase());
+    if (!me) continue;
+
+    const balances = calculateBalances(members, expenses, []);
+    const myBalance = balances.get(me.id);
+    if (!myBalance) continue;
+    myPaid += myBalance.paid;
+    if (myBalance.net < 0) myOwed += -myBalance.net;
+    if (myBalance.net > 0) owedToMe += myBalance.net;
+  }
+
+  recentExpenses.sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt?.localeCompare(a.createdAt));
+
+  return {
+    hasCurrentUser: !!currentUserName,
+    currentUserName,
+    totalExpenseAmount,
+    myPaid,
+    netBalance: owedToMe - myOwed,
+    myOwed,
+    owedToMe,
+    groupCount: groups.length,
+    recentExpenses: recentExpenses.slice(0, 5),
+    groups,
+  };
+}
