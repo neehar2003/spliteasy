@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Receipt, Users, Wallet, ArrowDownCircle, ArrowUpCircle, Sparkles } from 'lucide-react';
 import { useDatabase } from '../context/DatabaseContext';
 import { getDashboardSummary } from '../services/dashboardService';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { formatPaise } from '../utils/currency';
 import EmptyState from '../components/common/EmptyState';
 import GroupFormModal from '../components/groups/GroupFormModal';
@@ -11,10 +12,14 @@ import { useToast } from '../hooks/useToast';
 
 export default function Dashboard() {
   const { version, refresh } = useDatabase();
-  const summary = useMemo(() => getDashboardSummary(), [version]);
+  const { data: summary, loading } = useAsyncData(getDashboardSummary, [version]);
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [loadingDemo, setLoadingDemo] = useState(false);
   const toast = useToast();
+
+  if (loading || !summary) {
+    return <p className="muted">Loading…</p>;
+  }
 
   const noDataAtAll = summary.groupCount === 0;
 

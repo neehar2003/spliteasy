@@ -9,9 +9,9 @@ import { getCurrentUserName } from './settingsService';
  * against each group's member list — a member named the same as the
  * configured user name is treated as "me" in that group.
  */
-export function getDashboardSummary() {
+export async function getDashboardSummary() {
   const currentUserName = getCurrentUserName();
-  const groups = listGroups();
+  const groups = await listGroups();
 
   let totalExpenseAmount = 0;
   let myPaid = 0;
@@ -20,8 +20,7 @@ export function getDashboardSummary() {
   const recentExpenses = [];
 
   for (const group of groups) {
-    const members = listMembers(group.id);
-    const expenses = listExpenses(group.id);
+    const [members, expenses] = await Promise.all([listMembers(group.id), listExpenses(group.id)]);
     totalExpenseAmount += totalExpenses(expenses);
 
     for (const e of expenses) {

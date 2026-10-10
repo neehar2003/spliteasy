@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Plus, Pencil, Trash2, UserPlus, ArrowLeft, Receipt } from 'lucide-react';
 import { useDatabase } from '../context/DatabaseContext';
 import { getGroup, deleteGroup, addMember, removeMember, memberHasRecords } from '../services/groupService';
 import { listExpenses } from '../services/expenseService';
+import { useAsyncData } from '../hooks/useAsyncData';
 import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import GroupFormModal from '../components/groups/GroupFormModal';
@@ -28,10 +29,33 @@ export default function GroupDetailPage() {
   const [removeTarget, setRemoveTarget] = useState(null);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
+  const [removeTargetHasRecords, setRemoveTargetHasRecords] = useState(false);
 
-  const group = useMemo(() => getGroup(groupId), [groupId, version]);
-  const expenses = useMemo(() => (group ? listExpenses(groupId) : []), [groupId, version]);
+  const fetchGroup = useCallback(() => getGroup(groupId), [groupId]);
+  const { data: group, loading: groupLoading } = useAsyncData(fetchGroup, [groupId, version]);
+
+  const fetchExpenses = useCallback(() => (group ? listExpenses(groupId) : Promise.resolve([])), [groupId, group]);
+  const { data: expenses } = useAsyncData(fetchExpenses, [groupId, version, !!group], []);
+
   const nameById = useMemo(() => Object.fromEntries((group?.members || []).map((m) => [m.id, m.name])), [group]);
+
+  useEffect(() => {
+    if (!removeTarget) {
+      setRemoveTargetHasRecords(false);
+      return;
+    }
+    let cancelled = false;
+    memberHasRecords(removeTarget.id).then((result) => {
+      if (!cancelled) setRemoveTargetHasRecords(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [removeTarget]);
+
+  if (groupLoading) {
+    return <p className="muted">Loading…</p>;
+  }
 
   if (!group) {
     return (
@@ -188,7 +212,7 @@ export default function GroupDetailPage() {
         <ConfirmDialog
           title={`Remove ${removeTarget.name}?`}
           message={
-            memberHasRecords(removeTarget.id)
+            removeTargetHasRecords
               ? `${removeTarget.name} has existing expenses or settlements and cannot be removed. Delete or reassign those first.`
               : `This will remove ${removeTarget.name} from the group.`
           }

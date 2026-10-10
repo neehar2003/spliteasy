@@ -1,16 +1,21 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { HandCoins } from 'lucide-react';
 import { useDatabase } from '../context/DatabaseContext';
 import { listGroups } from '../services/groupService';
+import { useAsyncData } from '../hooks/useAsyncData';
 import EmptyState from '../components/common/EmptyState';
 import SettlementPanel from '../components/settlements/SettlementPanel';
 
 export default function SettlementsPage() {
   const { version } = useDatabase();
-  const groups = useMemo(() => listGroups(), [version]);
+  const { data: groups, loading } = useAsyncData(useCallback(() => listGroups(), [version]), [version], []);
   const [groupId, setGroupId] = useState('');
 
   const activeGroup = groupId || groups[0]?.id || '';
+
+  if (loading) {
+    return <p className="muted">Loading…</p>;
+  }
 
   return (
     <div>

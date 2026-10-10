@@ -1,18 +1,23 @@
-// App has no authentication (it is a static, backend-less site), so "who am
-// I" is just a display name the user picks once in Settings. Dashboard totals
-// match this name (case-insensitively) against member records across groups.
-import { run, query, persist } from './database/db';
-
-const CURRENT_USER_KEY = 'current_user_name';
+// "Who am I" is a per-browser display name, not an account — it only decides
+// which member row in a shared group is matched as "me" for dashboard totals
+// (see dashboardService). Since it's local to this browser, it's kept in
+// localStorage rather than the shared Supabase database.
+const CURRENT_USER_KEY = 'spliteasy_current_user_name';
 
 export function getCurrentUserName() {
-  const rows = query('SELECT value FROM schema_meta WHERE key = ?', [CURRENT_USER_KEY]);
-  return rows[0]?.value || null;
+  try {
+    return localStorage.getItem(CURRENT_USER_KEY) || null;
+  } catch {
+    return null;
+  }
 }
 
-export async function setCurrentUserName(name) {
+export function setCurrentUserName(name) {
   const trimmed = name.trim();
-  run('INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)', [CURRENT_USER_KEY, trimmed]);
-  await persist();
+  try {
+    localStorage.setItem(CURRENT_USER_KEY, trimmed);
+  } catch {
+    // Private browsing / blocked storage: name just won't persist across reloads.
+  }
   return trimmed;
 }

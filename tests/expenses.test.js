@@ -1,25 +1,34 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { initDatabase, resetDatabase } from '../src/services/database/db';
-import { createGroup, getGroup, addMember, removeMember } from '../src/services/groupService';
-import { createExpense, updateExpense, deleteExpense, listExpenses } from '../src/services/expenseService';
-import { getBalances, getSuggestedSettlements, recordSettlement, markCompleted, undoSettlement } from '../src/services/settlementService';
-import { exportBackupData, importBackupData } from '../src/services/backupService';
-import { rupeesToPaise } from '../src/utils/currency';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../src/services/database/supabaseClient', async () => {
+  const fake = await import('./fakeSupabase.js');
+  return { supabase: fake.supabase };
+});
+
+const { resetFakeDb } = await import('./fakeSupabase.js');
+const { initDatabase, resetDatabase } = await import('../src/services/database/db');
+const { createGroup, getGroup, addMember, removeMember } = await import('../src/services/groupService');
+const { createExpense, updateExpense, deleteExpense, listExpenses } = await import('../src/services/expenseService');
+const { getBalances, getSuggestedSettlements, recordSettlement, markCompleted, undoSettlement } = await import(
+  '../src/services/settlementService'
+);
+const { exportBackupData, importBackupData } = await import('../src/services/backupService');
+const { rupeesToPaise } = await import('../src/utils/currency');
 
 beforeEach(async () => {
+  resetFakeDb();
   await initDatabase();
-  await resetDatabase();
 });
 
 async function setupGroup(names) {
   return createGroup({ name: 'Trip', description: 'test group', memberNames: names });
 }
 
-describe('expense + settlement integration (real SQLite via sql.js)', () => {
+describe('expense + settlement integration (fake in-memory Supabase)', () => {
   it('creates a group with members and persists them', async () => {
     const group = await setupGroup(['Alice', 'Bob', 'Carol']);
     expect(group.members).toHaveLength(3);
-    const reloaded = getGroup(group.id);
+    const reloaded = await getGroup(group.id);
     expect(reloaded.members.map((m) => m.name)).toEqual(['Alice', 'Bob', 'Carol']);
   });
 
@@ -34,7 +43,7 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       date: '2026-01-01',
       splitMethod: 'equal',
     });
-    const balances = getBalances(group.id);
+    const balances = await getBalances(group.id);
     expect(balances.get(a.id).net).toBe(rupeesToPaise(200));
     expect(balances.get(b.id).net).toBe(rupeesToPaise(-100));
     expect(balances.get(c.id).net).toBe(rupeesToPaise(-100));
@@ -52,7 +61,7 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       splitMethod: 'exact',
       splits: { [a.id]: rupeesToPaise(60), [b.id]: rupeesToPaise(40) },
     });
-    let expenses = listExpenses(group.id);
+    let expenses = await listExpenses(group.id);
     expect(expenses[0].participants.find((p) => p.memberId === b.id).sharePaise).toBe(rupeesToPaise(40));
 
     await createExpense(group.id, {
@@ -64,7 +73,7 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       splitMethod: 'percentage',
       splits: { [a.id]: 70, [b.id]: 30 },
     });
-    expenses = listExpenses(group.id);
+    expenses = await listExpenses(group.id);
     const pct = expenses.find((e) => e.title === 'Percentage split');
     expect(pct.participants.find((p) => p.memberId === a.id).sharePaise).toBe(rupeesToPaise(70));
   });
@@ -107,7 +116,7 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       date: '2026-01-01',
       splitMethod: 'equal',
     });
-    expect(getBalances(group.id).get(b.id).net).toBe(rupeesToPaise(-50));
+    expect((await getBalances(group.id)).get(b.id).net).toBe(rupeesToPaise(-50));
 
     await updateExpense(expense.id, {
       title: 'Lunch (updated)',
@@ -117,7 +126,7 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       date: '2026-01-01',
       splitMethod: 'equal',
     });
-    expect(getBalances(group.id).get(b.id).net).toBe(rupeesToPaise(-100));
+    expect((await getBalances(group.id)).get(b.id).net).toBe(rupeesToPaise(-100));
   });
 
   it('deleting an expense removes its effect on balances', async () => {
@@ -132,7 +141,7 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       splitMethod: 'equal',
     });
     await deleteExpense(expense.id);
-    const balances = getBalances(group.id);
+    const balances = await getBalances(group.id);
     expect(balances.get(a.id).net).toBe(0);
     expect(balances.get(b.id).net).toBe(0);
   });
@@ -148,16 +157,16 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       date: '2026-01-01',
       splitMethod: 'equal',
     });
-    const suggestions = getSuggestedSettlements(group.id);
+    const suggestions = await getSuggestedSettlements(group.id);
     expect(suggestions).toEqual([{ fromId: b.id, toId: a.id, amountPaise: rupeesToPaise(50) }]);
 
     const settlement = await recordSettlement(group.id, suggestions[0]);
     await markCompleted(settlement.id, '2026-01-05');
-    expect(getBalances(group.id).get(b.id).afterSettlements).toBe(0);
-    expect(getSuggestedSettlements(group.id)).toEqual([]);
+    expect((await getBalances(group.id)).get(b.id).afterSettlements).toBe(0);
+    expect(await getSuggestedSettlements(group.id)).toEqual([]);
 
     await undoSettlement(settlement.id);
-    expect(getBalances(group.id).get(b.id).afterSettlements).toBe(rupeesToPaise(-50));
+    expect((await getBalances(group.id)).get(b.id).afterSettlements).toBe(rupeesToPaise(-50));
   });
 
   it('prevents removing a member who has expense or settlement records', async () => {
@@ -178,10 +187,10 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
     const group = await setupGroup(['Alice', 'Bob']);
     const [, b] = group.members;
     await removeMember(b.id);
-    expect(getGroup(group.id).members).toHaveLength(1);
+    expect((await getGroup(group.id)).members).toHaveLength(1);
   });
 
-  it('persists data across a simulated reload (re-init from IndexedDB)', async () => {
+  it('persists data across a simulated reload (re-init against the shared database)', async () => {
     const group = await setupGroup(['Alice', 'Bob']);
     const [a, b] = group.members;
     await createExpense(group.id, {
@@ -193,12 +202,12 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       splitMethod: 'equal',
     });
 
-    // Re-initializing simulates the app reloading: it should restore from IndexedDB.
+    // Re-initializing simulates the app reloading: data lives server-side, so it's unaffected.
     const result = await initDatabase();
     expect(result.restored).toBe(true);
-    const reloaded = getGroup(group.id);
+    const reloaded = await getGroup(group.id);
     expect(reloaded.name).toBe('Trip');
-    expect(listExpenses(group.id)).toHaveLength(1);
+    expect(await listExpenses(group.id)).toHaveLength(1);
   });
 
   it('exports a backup and re-imports it, restoring all data', async () => {
@@ -213,20 +222,20 @@ describe('expense + settlement integration (real SQLite via sql.js)', () => {
       splitMethod: 'equal',
     });
 
-    const backup = exportBackupData();
+    const backup = await exportBackupData();
     await resetDatabase();
-    expect(getGroup(group.id)).toBeNull();
+    expect(await getGroup(group.id)).toBeNull();
 
     await importBackupData(backup);
-    const restored = getGroup(group.id);
+    const restored = await getGroup(group.id);
     expect(restored.name).toBe('Trip');
-    expect(listExpenses(group.id)).toHaveLength(1);
+    expect(await listExpenses(group.id)).toHaveLength(1);
   });
 
   it('rejects a corrupted/invalid backup without touching existing data', async () => {
     const group = await setupGroup(['Alice', 'Bob']);
     await expect(importBackupData({ not: 'a backup' })).rejects.toThrow();
     // Original data must remain untouched.
-    expect(getGroup(group.id)).not.toBeNull();
+    expect(await getGroup(group.id)).not.toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ArrowRight, CheckCircle2, Undo2, Trash2 } from 'lucide-react';
 import { useDatabase } from '../../context/DatabaseContext';
 import { listMembers } from '../../services/groupService';
@@ -11,12 +11,33 @@ import {
   undoSettlement,
   deleteSettlement,
 } from '../../services/settlementService';
+import { useAsyncData } from '../../hooks/useAsyncData';
 import { formatPaise } from '../../utils/currency';
 import ConfirmDialog from '../common/ConfirmDialog';
 import { useToast } from '../../hooks/useToast';
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+const EMPTY_DATA = { members: [], nameById: {}, balances: [], suggestions: [], pending: [], completed: [] };
+
+async function loadPanelData(groupId) {
+  const [members, balances, suggestions, history] = await Promise.all([
+    listMembers(groupId),
+    getBalances(groupId),
+    getSuggestedSettlements(groupId),
+    listSettlements(groupId),
+  ]);
+  const nameById = Object.fromEntries(members.map((m) => [m.id, m.name]));
+  return {
+    members,
+    nameById,
+    balances: [...balances.values()],
+    suggestions,
+    pending: history.filter((s) => !s.completed),
+    completed: history.filter((s) => s.completed),
+  };
 }
 
 export default function SettlementPanel({ groupId }) {
@@ -27,21 +48,7 @@ export default function SettlementPanel({ groupId }) {
   const [undoTarget, setUndoTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const data = useMemo(() => {
-    const members = listMembers(groupId);
-    const nameById = Object.fromEntries(members.map((m) => [m.id, m.name]));
-    const balances = [...getBalances(groupId).values()];
-    const suggestions = getSuggestedSettlements(groupId);
-    const history = listSettlements(groupId);
-    return {
-      members,
-      nameById,
-      balances,
-      suggestions,
-      pending: history.filter((s) => !s.completed),
-      completed: history.filter((s) => s.completed),
-    };
-  }, [groupId, version]);
+  const { data, loading } = useAsyncData(useCallback(() => loadPanelData(groupId), [groupId]), [groupId, version], EMPTY_DATA);
 
   async function handleConfirmPay() {
     try {
@@ -75,6 +82,10 @@ export default function SettlementPanel({ groupId }) {
     } catch (err) {
       toast.error(err.message);
     }
+  }
+
+  if (loading) {
+    return <p className="muted">Loading…</p>;
   }
 
   return (

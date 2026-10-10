@@ -1,25 +1,35 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Users, ChevronRight } from 'lucide-react';
 import { useDatabase } from '../context/DatabaseContext';
 import { listGroups, listMembers } from '../services/groupService';
 import { listExpenses } from '../services/expenseService';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { totalExpenses } from '../algorithms/calculateBalances';
 import { formatPaise } from '../utils/currency';
 import EmptyState from '../components/common/EmptyState';
 import GroupFormModal from '../components/groups/GroupFormModal';
 
+async function loadGroupsWithTotals() {
+  const groups = await listGroups();
+  return Promise.all(
+    groups.map(async (g) => {
+      const [members, expenses] = await Promise.all([listMembers(g.id), listExpenses(g.id)]);
+      return { ...g, memberCount: members.length, total: totalExpenses(expenses) };
+    })
+  );
+}
+
 export default function GroupsPage() {
   const { version, refresh } = useDatabase();
   const [showForm, setShowForm] = useState(false);
 
-  const groups = useMemo(() => {
-    return listGroups().map((g) => {
-      const members = listMembers(g.id);
-      const expenses = listExpenses(g.id);
-      return { ...g, memberCount: members.length, total: totalExpenses(expenses) };
-    });
-  }, [version]);
+  const fetchGroups = useCallback(loadGroupsWithTotals, []);
+  const { data: groups, loading } = useAsyncData(fetchGroups, [version], []);
+
+  if (loading) {
+    return <p className="muted">Loading…</p>;
+  }
 
   return (
     <div>

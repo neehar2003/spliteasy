@@ -1,15 +1,37 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Plus, Receipt } from 'lucide-react';
 import { useDatabase } from '../context/DatabaseContext';
 import { listGroups, listMembers } from '../services/groupService';
 import { listExpenses } from '../services/expenseService';
+import { useAsyncData } from '../hooks/useAsyncData';
 import EmptyState from '../components/common/EmptyState';
 import ExpenseList from '../components/expenses/ExpenseList';
 import ExpenseFormModal from '../components/expenses/ExpenseFormModal';
 
+async function loadExpensesView(groups, groupId, filters) {
+  const { search, dateFrom, dateTo, memberId, sortBy, sortDir } = filters;
+  const groupNameById = Object.fromEntries(groups.map((g) => [g.id, g.name]));
+  const targetGroups = groupId ? [groupId] : groups.map((g) => g.id);
+  let all = [];
+  const nameMaps = {};
+  for (const gid of targetGroups) {
+    const groupMembers = await listMembers(gid);
+    for (const m of groupMembers) nameMaps[m.id] = m.name;
+    const filtered = await listExpenses(gid, { search, dateFrom, dateTo, memberId: groupId ? memberId : '', sortBy, sortDir });
+    all = all.concat(filtered);
+  }
+  all.sort((a, b) => {
+    const dir = sortDir === 'ASC' ? 1 : -1;
+    if (sortBy === 'amount_paise') return (a.amountPaise - b.amountPaise) * dir;
+    if (sortBy === 'title') return a.title.localeCompare(b.title) * dir;
+    return (new Date(a.date) - new Date(b.date)) * dir;
+  });
+  return { expenses: all, nameById: nameMaps, groupNameById };
+}
+
 export default function ExpensesPage() {
   const { version, refresh } = useDatabase();
-  const groups = useMemo(() => listGroups(), [version]);
+  const { data: groups, loading: groupsLoading } = useAsyncData(useCallback(() => listGroups(), [version]), [version], []);
 
   const [groupId, setGroupId] = useState('');
   const [search, setSearch] = useState('');
@@ -21,29 +43,29 @@ export default function ExpensesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
 
-  const members = useMemo(() => (groupId ? listMembers(groupId) : []), [groupId, version]);
+  const { data: members } = useAsyncData(
+    useCallback(() => (groupId ? listMembers(groupId) : Promise.resolve([])), [groupId]),
+    [groupId, version],
+    []
+  );
 
-  const { expenses, nameById, groupNameById } = useMemo(() => {
-    const groupNameById = Object.fromEntries(groups.map((g) => [g.id, g.name]));
-    const targetGroups = groupId ? [groupId] : groups.map((g) => g.id);
-    let all = [];
-    const nameMaps = {};
-    for (const gid of targetGroups) {
-      const groupMembers = listMembers(gid);
-      for (const m of groupMembers) nameMaps[m.id] = m.name;
-      const filtered = listExpenses(gid, { search, dateFrom, dateTo, memberId: groupId ? memberId : '', sortBy, sortDir });
-      all = all.concat(filtered);
-    }
-    all.sort((a, b) => {
-      const dir = sortDir === 'ASC' ? 1 : -1;
-      if (sortBy === 'amount_paise') return (a.amountPaise - b.amountPaise) * dir;
-      if (sortBy === 'title') return a.title.localeCompare(b.title) * dir;
-      return (new Date(a.date) - new Date(b.date)) * dir;
-    });
-    return { expenses: all, nameById: nameMaps, groupNameById };
-  }, [groups, groupId, search, dateFrom, dateTo, memberId, sortBy, sortDir, version]);
+  const fetchExpensesView = useCallback(
+    () => loadExpensesView(groups, groupId, { search, dateFrom, dateTo, memberId, sortBy, sortDir }),
+    [groups, groupId, search, dateFrom, dateTo, memberId, sortBy, sortDir]
+  );
+  const { data: view, loading: expensesLoading } = useAsyncData(
+    fetchExpensesView,
+    [groups, groupId, search, dateFrom, dateTo, memberId, sortBy, sortDir, version],
+    { expenses: [], nameById: {}, groupNameById: {} }
+  );
+  const { expenses, nameById, groupNameById } = view;
 
-  const noExpensesAtAll = groups.length > 0 && expenses.length === 0 && !search && !dateFrom && !dateTo && !memberId;
+  const noExpensesAtAll =
+    !groupsLoading && !expensesLoading && groups.length > 0 && expenses.length === 0 && !search && !dateFrom && !dateTo && !memberId;
+
+  if (groupsLoading) {
+    return <p className="muted">Loading…</p>;
+  }
 
   return (
     <div>

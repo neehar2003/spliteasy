@@ -1,4 +1,6 @@
-import { run, query, transaction, persist, generateId, nowIso, DatabaseError } from './database/db';
+import { supabase } from './database/supabaseClient';
+import { generateId, nowIso, assertNoError, DatabaseError } from './database/db';
+import { getCurrentUserName } from './settingsService';
 import { splitEqually, splitByPercentage } from '../utils/currency';
 import { validateExpenseForm } from '../utils/validation';
 
@@ -30,22 +32,30 @@ export async function createExpense(groupId, input) {
   const id = generateId();
   const now = nowIso();
 
-  transaction(() => {
-    run(
-      `INSERT INTO expenses (id, group_id, title, amount_paise, payer_id, expense_date, notes, split_method, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, groupId, title.trim(), amountPaise, payerId, date, notes?.trim() || null, splitMethod, now, now]
-    );
-    for (const memberId of participantIds) {
-      run('INSERT INTO expense_participants (id, expense_id, member_id, share_paise) VALUES (?, ?, ?, ?)', [
-        generateId(),
-        id,
-        memberId,
-        shares[memberId],
-      ]);
-    }
+  const { error: expenseError } = await supabase.from('expenses').insert({
+    id,
+    group_id: groupId,
+    title: title.trim(),
+    amount_paise: amountPaise,
+    payer_id: payerId,
+    expense_date: date,
+    notes: notes?.trim() || null,
+    split_method: splitMethod,
+    created_by: getCurrentUserName() || 'Unknown',
+    created_at: now,
+    updated_at: now,
   });
-  await persist();
+  assertNoError(expenseError);
+
+  const participantRows = participantIds.map((memberId) => ({
+    id: generateId(),
+    expense_id: id,
+    member_id: memberId,
+    share_paise: shares[memberId],
+  }));
+  const { error: participantError } = await supabase.from('expense_participants').insert(participantRows);
+  assertNoError(participantError);
+
   return getExpense(id);
 }
 
@@ -59,80 +69,83 @@ export async function updateExpense(expenseId, input) {
   const shares = computeShares(splitMethod, amountPaise, participantIds, splits || {});
   const now = nowIso();
 
-  transaction(() => {
-    run(
-      `UPDATE expenses SET title = ?, amount_paise = ?, payer_id = ?, expense_date = ?, notes = ?, split_method = ?, updated_at = ?
-       WHERE id = ?`,
-      [title.trim(), amountPaise, payerId, date, notes?.trim() || null, splitMethod, now, expenseId]
-    );
-    run('DELETE FROM expense_participants WHERE expense_id = ?', [expenseId]);
-    for (const memberId of participantIds) {
-      run('INSERT INTO expense_participants (id, expense_id, member_id, share_paise) VALUES (?, ?, ?, ?)', [
-        generateId(),
-        expenseId,
-        memberId,
-        shares[memberId],
-      ]);
-    }
-  });
-  await persist();
+  const { error: expenseError } = await supabase
+    .from('expenses')
+    .update({
+      title: title.trim(),
+      amount_paise: amountPaise,
+      payer_id: payerId,
+      expense_date: date,
+      notes: notes?.trim() || null,
+      split_method: splitMethod,
+      updated_at: now,
+    })
+    .eq('id', expenseId);
+  assertNoError(expenseError);
+
+  const { error: deleteError } = await supabase.from('expense_participants').delete().eq('expense_id', expenseId);
+  assertNoError(deleteError);
+
+  const participantRows = participantIds.map((memberId) => ({
+    id: generateId(),
+    expense_id: expenseId,
+    member_id: memberId,
+    share_paise: shares[memberId],
+  }));
+  const { error: participantError } = await supabase.from('expense_participants').insert(participantRows);
+  assertNoError(participantError);
+
   return getExpense(expenseId);
 }
 
 export async function deleteExpense(expenseId) {
-  transaction(() => {
-    run('DELETE FROM expense_participants WHERE expense_id = ?', [expenseId]);
-    run('DELETE FROM expenses WHERE id = ?', [expenseId]);
-  });
-  await persist();
+  // expense_participants cascades from expenses.id, but delete explicitly either way.
+  const { error } = await supabase.from('expenses').delete().eq('id', expenseId);
+  assertNoError(error);
 }
 
-export function getExpense(expenseId) {
-  const rows = query('SELECT * FROM expenses WHERE id = ?', [expenseId]);
-  if (!rows.length) return null;
-  return attachParticipants(mapExpenseRow(rows[0]));
+export async function getExpense(expenseId) {
+  const { data, error } = await supabase.from('expenses').select('*').eq('id', expenseId).maybeSingle();
+  assertNoError(error);
+  if (!data) return null;
+  return attachParticipants(mapExpenseRow(data));
 }
 
-export function listExpenses(groupId, filters = {}) {
+export async function listExpenses(groupId, filters = {}) {
   const { search, dateFrom, dateTo, memberId, sortBy = 'expense_date', sortDir = 'DESC' } = filters;
-  const clauses = ['group_id = ?'];
-  const params = [groupId];
 
-  if (search) {
-    clauses.push('title LIKE ?');
-    params.push(`%${search}%`);
-  }
-  if (dateFrom) {
-    clauses.push('expense_date >= ?');
-    params.push(dateFrom);
-  }
-  if (dateTo) {
-    clauses.push('expense_date <= ?');
-    params.push(dateTo);
-  }
-  if (memberId) {
-    clauses.push(
-      '(payer_id = ? OR id IN (SELECT expense_id FROM expense_participants WHERE member_id = ?))'
-    );
-    params.push(memberId, memberId);
-  }
+  let queryBuilder = supabase.from('expenses').select('*').eq('group_id', groupId);
+  if (search) queryBuilder = queryBuilder.ilike('title', `%${search}%`);
+  if (dateFrom) queryBuilder = queryBuilder.gte('expense_date', dateFrom);
+  if (dateTo) queryBuilder = queryBuilder.lte('expense_date', dateTo);
 
   const allowedSort = { expense_date: 'expense_date', amount_paise: 'amount_paise', title: 'title' };
   const sortColumn = allowedSort[sortBy] || 'expense_date';
-  const direction = sortDir === 'ASC' ? 'ASC' : 'DESC';
+  queryBuilder = queryBuilder
+    .order(sortColumn, { ascending: sortDir === 'ASC' })
+    .order('created_at', { ascending: false });
 
-  const rows = query(
-    `SELECT * FROM expenses WHERE ${clauses.join(' AND ')} ORDER BY ${sortColumn} ${direction}, created_at DESC`,
-    params
-  );
-  return rows.map(mapExpenseRow).map(attachParticipants);
+  const { data, error } = await queryBuilder;
+  assertNoError(error);
+  let rows = data.map(mapExpenseRow);
+
+  if (memberId) {
+    const { data: participantRows, error: pError } = await supabase
+      .from('expense_participants')
+      .select('expense_id')
+      .eq('member_id', memberId);
+    assertNoError(pError);
+    const participantExpenseIds = new Set(participantRows.map((r) => r.expense_id));
+    rows = rows.filter((e) => e.payerId === memberId || participantExpenseIds.has(e.id));
+  }
+
+  return Promise.all(rows.map(attachParticipants));
 }
 
-function attachParticipants(expense) {
-  expense.participants = query('SELECT * FROM expense_participants WHERE expense_id = ?', [expense.id]).map((row) => ({
-    memberId: row.member_id,
-    sharePaise: row.share_paise,
-  }));
+async function attachParticipants(expense) {
+  const { data, error } = await supabase.from('expense_participants').select('*').eq('expense_id', expense.id);
+  assertNoError(error);
+  expense.participants = data.map((row) => ({ memberId: row.member_id, sharePaise: row.share_paise }));
   return expense;
 }
 
@@ -146,6 +159,7 @@ function mapExpenseRow(row) {
     date: row.expense_date,
     notes: row.notes,
     splitMethod: row.split_method,
+    createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

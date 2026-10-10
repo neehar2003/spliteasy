@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Modal from '../common/Modal';
 import { listMembers } from '../../services/groupService';
 import { createExpense, updateExpense } from '../../services/expenseService';
+import { useAsyncData } from '../../hooks/useAsyncData';
 import { rupeesToPaise, paiseToRupees } from '../../utils/currency';
 import { validateExpenseForm } from '../../utils/validation';
 import { useToast } from '../../hooks/useToast';
@@ -18,17 +19,27 @@ function todayIso() {
 
 export default function ExpenseFormModal({ groupId, expense, onClose, onSaved }) {
   const isEdit = !!expense;
-  const members = useMemo(() => listMembers(groupId), [groupId]);
+  const { data: members } = useAsyncData(useCallback(() => listMembers(groupId), [groupId]), [groupId], []);
 
   const [title, setTitle] = useState(expense?.title || '');
   const [amount, setAmount] = useState(expense ? String(paiseToRupees(expense.amountPaise)) : '');
-  const [payerId, setPayerId] = useState(expense?.payerId || members[0]?.id || '');
+  const [payerId, setPayerId] = useState(expense?.payerId || '');
   const [date, setDate] = useState(expense?.date || todayIso());
   const [notes, setNotes] = useState(expense?.notes || '');
   const [splitMethod, setSplitMethod] = useState(expense?.splitMethod || 'equal');
-  const [participantIds, setParticipantIds] = useState(
-    expense ? expense.participants.map((p) => p.memberId) : members.map((m) => m.id)
-  );
+  const [participantIds, setParticipantIds] = useState(expense ? expense.participants.map((p) => p.memberId) : []);
+  const [membersInitialized, setMembersInitialized] = useState(false);
+
+  // Members load asynchronously; once they arrive, fill in the defaults that
+  // depend on the member list (payer, and "everyone" as default participants).
+  useEffect(() => {
+    if (membersInitialized || members.length === 0) return;
+    setMembersInitialized(true);
+    if (!payerId) setPayerId(members[0].id);
+    if (!isEdit) setParticipantIds(members.map((m) => m.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members]);
+
   const initialExact = {};
   const initialPercent = {};
   if (expense) {

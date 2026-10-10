@@ -1,78 +1,93 @@
-import { run, query, transaction, persist, generateId, nowIso, DatabaseError } from './database/db';
+import { supabase } from './database/supabaseClient';
+import { generateId, nowIso, assertNoError, DatabaseError } from './database/db';
+import { getCurrentUserName } from './settingsService';
 
-export function listGroups() {
-  const groups = query('SELECT * FROM groups ORDER BY created_at DESC');
-  return groups.map(mapGroupRow);
+export async function listGroups() {
+  const { data, error } = await supabase.from('groups').select('*').order('created_at', { ascending: false });
+  assertNoError(error);
+  return data.map(mapGroupRow);
 }
 
-export function getGroup(groupId) {
-  const rows = query('SELECT * FROM groups WHERE id = ?', [groupId]);
-  if (!rows.length) return null;
-  const group = mapGroupRow(rows[0]);
-  group.members = listMembers(groupId);
+export async function getGroup(groupId) {
+  const { data, error } = await supabase.from('groups').select('*').eq('id', groupId).maybeSingle();
+  assertNoError(error);
+  if (!data) return null;
+  const group = mapGroupRow(data);
+  group.members = await listMembers(groupId);
   return group;
 }
 
-export function listMembers(groupId) {
-  return query('SELECT * FROM members WHERE group_id = ? ORDER BY created_at ASC', [groupId]).map(mapMemberRow);
+export async function listMembers(groupId) {
+  const { data, error } = await supabase
+    .from('members')
+    .select('*')
+    .eq('group_id', groupId)
+    .order('created_at', { ascending: true });
+  assertNoError(error);
+  return data.map(mapMemberRow);
 }
 
 export async function createGroup({ name, description, memberNames }) {
   const groupId = generateId();
   const now = nowIso();
-  transaction(() => {
-    run('INSERT INTO groups (id, name, description, created_at) VALUES (?, ?, ?, ?)', [
-      groupId,
-      name.trim(),
-      description?.trim() || null,
-      now,
-    ]);
-    for (const memberName of memberNames) {
-      run('INSERT INTO members (id, group_id, name, created_at) VALUES (?, ?, ?, ?)', [
-        generateId(),
-        groupId,
-        memberName.trim(),
-        now,
-      ]);
-    }
+  const createdBy = getCurrentUserName() || 'Unknown';
+
+  const { error: groupError } = await supabase.from('groups').insert({
+    id: groupId,
+    name: name.trim(),
+    description: description?.trim() || null,
+    created_by: createdBy,
+    created_at: now,
   });
-  await persist();
+  assertNoError(groupError);
+
+  const memberRows = memberNames.map((memberName) => ({
+    id: generateId(),
+    group_id: groupId,
+    name: memberName.trim(),
+    created_at: now,
+  }));
+  if (memberRows.length) {
+    const { error: memberError } = await supabase.from('members').insert(memberRows);
+    assertNoError(memberError);
+  }
+
   return getGroup(groupId);
 }
 
 export async function updateGroup(groupId, { name, description }) {
-  run('UPDATE groups SET name = ?, description = ? WHERE id = ?', [name.trim(), description?.trim() || null, groupId]);
-  await persist();
+  const { error } = await supabase
+    .from('groups')
+    .update({ name: name.trim(), description: description?.trim() || null })
+    .eq('id', groupId);
+  assertNoError(error);
   return getGroup(groupId);
 }
 
 export async function deleteGroup(groupId) {
-  transaction(() => {
-    run('DELETE FROM expense_participants WHERE expense_id IN (SELECT id FROM expenses WHERE group_id = ?)', [groupId]);
-    run('DELETE FROM expenses WHERE group_id = ?', [groupId]);
-    run('DELETE FROM settlements WHERE group_id = ?', [groupId]);
-    run('DELETE FROM members WHERE group_id = ?', [groupId]);
-    run('DELETE FROM groups WHERE id = ?', [groupId]);
-  });
-  await persist();
+  // members/expenses/expense_participants/settlements all cascade from groups.id.
+  const { error } = await supabase.from('groups').delete().eq('id', groupId);
+  assertNoError(error);
 }
 
 export async function addMember(groupId, name) {
   const trimmed = name.trim();
   if (!trimmed) throw new DatabaseError('Member name is required.');
-  const existing = listMembers(groupId).map((m) => m.name.toLowerCase());
+  const existing = (await listMembers(groupId)).map((m) => m.name.toLowerCase());
   if (existing.includes(trimmed.toLowerCase())) {
     throw new DatabaseError('A member with that name already exists in this group.');
   }
   const id = generateId();
-  run('INSERT INTO members (id, group_id, name, created_at) VALUES (?, ?, ?, ?)', [id, groupId, trimmed, nowIso()]);
-  await persist();
+  const { error } = await supabase
+    .from('members')
+    .insert({ id, group_id: groupId, name: trimmed, created_at: nowIso() });
+  assertNoError(error);
   return { id, groupId, name: trimmed };
 }
 
 export async function renameMember(memberId, name) {
-  run('UPDATE members SET name = ? WHERE id = ?', [name.trim(), memberId]);
-  await persist();
+  const { error } = await supabase.from('members').update({ name: name.trim() }).eq('id', memberId);
+  assertNoError(error);
 }
 
 /**
@@ -80,26 +95,31 @@ export async function renameMember(memberId, name) {
  * (as payer or participant) or settlement — removing them would otherwise
  * invalidate existing financial records.
  */
-export function memberHasRecords(memberId) {
-  const asPayer = query('SELECT COUNT(*) as c FROM expenses WHERE payer_id = ?', [memberId])[0].c;
-  const asParticipant = query('SELECT COUNT(*) as c FROM expense_participants WHERE member_id = ?', [memberId])[0].c;
-  const asSettler = query('SELECT COUNT(*) as c FROM settlements WHERE from_member_id = ? OR to_member_id = ?', [
-    memberId,
-    memberId,
-  ])[0].c;
-  return asPayer > 0 || asParticipant > 0 || asSettler > 0;
+export async function memberHasRecords(memberId) {
+  const [{ count: asPayer, error: e1 }, { count: asParticipant, error: e2 }, { count: asFrom, error: e3 }, { count: asTo, error: e4 }] =
+    await Promise.all([
+      supabase.from('expenses').select('id', { count: 'exact', head: true }).eq('payer_id', memberId),
+      supabase.from('expense_participants').select('id', { count: 'exact', head: true }).eq('member_id', memberId),
+      supabase.from('settlements').select('id', { count: 'exact', head: true }).eq('from_member_id', memberId),
+      supabase.from('settlements').select('id', { count: 'exact', head: true }).eq('to_member_id', memberId),
+    ]);
+  assertNoError(e1);
+  assertNoError(e2);
+  assertNoError(e3);
+  assertNoError(e4);
+  return asPayer > 0 || asParticipant > 0 || asFrom > 0 || asTo > 0;
 }
 
 export async function removeMember(memberId) {
-  if (memberHasRecords(memberId)) {
+  if (await memberHasRecords(memberId)) {
     throw new DatabaseError('This member has existing expenses or settlements and cannot be removed.');
   }
-  run('DELETE FROM members WHERE id = ?', [memberId]);
-  await persist();
+  const { error } = await supabase.from('members').delete().eq('id', memberId);
+  assertNoError(error);
 }
 
 function mapGroupRow(row) {
-  return { id: row.id, name: row.name, description: row.description, createdAt: row.created_at };
+  return { id: row.id, name: row.name, description: row.description, createdBy: row.created_by, createdAt: row.created_at };
 }
 
 function mapMemberRow(row) {

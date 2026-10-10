@@ -14,7 +14,7 @@ function AppRoutes() {
   const { status, error } = useDatabase();
 
   if (status === 'loading') {
-    return <div className="loading-screen">Loading your data…</div>;
+    return <div className="loading-screen">Connecting…</div>;
   }
 
   if (status === 'error') {
@@ -22,8 +22,8 @@ function AppRoutes() {
       <div className="error-screen">
         <AlertTriangle size={32} color="#d1393f" style={{ marginBottom: 12 }} />
         <h2>Couldn't load SplitEasy</h2>
-        <p className="muted">{error?.message || 'Something went wrong while starting the local database.'}</p>
-        <p className="muted">Try reloading the page. If the problem persists, your browser storage may be full or restricted (private browsing mode blocks IndexedDB).</p>
+        <p className="muted">{error?.message || 'Something went wrong while connecting to the database.'}</p>
+        <p className="muted">Try reloading the page. If the problem persists, check your internet connection or that the Supabase project is reachable.</p>
       </div>
     );
   }

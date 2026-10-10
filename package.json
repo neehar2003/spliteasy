@@ -2,7 +2,7 @@
   "name": "spliteasy",
   "private": true,
   "version": "1.0.0",
-  "description": "SplitEasy - Expense Splitter: split group expenses and settle up with minimal transactions, running entirely in the browser.",
+  "description": "SplitEasy - Expense Splitter: split group expenses and settle up with minimal transactions, backed by a shared Supabase database.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,15 +13,14 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
     "lucide-react": "^0.462.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0",
-    "sql.js": "^1.11.0"
+    "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "fake-indexeddb": "^6.0.0",
     "gh-pages": "^6.2.0",
     "jsdom": "^25.0.1",
     "vite": "^5.4.11",

@@ -1,17 +1,31 @@
-import { run, query, transaction, persist, DatabaseError } from './database/db';
+import { supabase } from './database/supabaseClient';
+import { assertNoError, DatabaseError } from './database/db';
 
 const BACKUP_VERSION = 1;
 
-/** Export the entire database as a plain JSON-serializable object. */
-export function exportBackupData() {
+/** Export the entire shared database as a plain JSON-serializable object. */
+export async function exportBackupData() {
+  const [groups, members, expenses, expenseParticipants, settlements] = await Promise.all([
+    supabase.from('groups').select('*'),
+    supabase.from('members').select('*'),
+    supabase.from('expenses').select('*'),
+    supabase.from('expense_participants').select('*'),
+    supabase.from('settlements').select('*'),
+  ]);
+  assertNoError(groups.error);
+  assertNoError(members.error);
+  assertNoError(expenses.error);
+  assertNoError(expenseParticipants.error);
+  assertNoError(settlements.error);
+
   return {
     backupVersion: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    groups: query('SELECT * FROM groups'),
-    members: query('SELECT * FROM members'),
-    expenses: query('SELECT * FROM expenses'),
-    expenseParticipants: query('SELECT * FROM expense_participants'),
-    settlements: query('SELECT * FROM settlements'),
+    groups: groups.data,
+    members: members.data,
+    expenses: expenses.data,
+    expenseParticipants: expenseParticipants.data,
+    settlements: settlements.data,
   };
 }
 
@@ -39,67 +53,72 @@ function validateBackupShape(data) {
   return null;
 }
 
-/** Validate and replace all data with the given backup. Rejects malformed/corrupted backups. */
+/**
+ * Validate and replace all shared data with the given backup. Rejects
+ * malformed/corrupted backups. This affects every user of the shared
+ * database, not just this browser.
+ */
 export async function importBackupData(data) {
   const error = validateBackupShape(data);
   if (error) throw new DatabaseError(`Invalid backup file: ${error}`);
 
-  transaction(() => {
-    run('DELETE FROM expense_participants');
-    run('DELETE FROM settlements');
-    run('DELETE FROM expenses');
-    run('DELETE FROM members');
-    run('DELETE FROM groups');
+  const del = async (table) => assertNoError((await supabase.from(table).delete().not('id', 'is', null)).error);
+  await del('expense_participants');
+  await del('settlements');
+  await del('expenses');
+  await del('members');
+  await del('groups');
 
-    for (const g of data.groups) {
-      run('INSERT INTO groups (id, name, description, created_at) VALUES (?, ?, ?, ?)', [
-        g.id,
-        g.name,
-        g.description ?? null,
-        g.created_at,
-      ]);
-    }
-    for (const m of data.members) {
-      run('INSERT INTO members (id, group_id, name, created_at) VALUES (?, ?, ?, ?)', [
-        m.id,
-        m.group_id,
-        m.name,
-        m.created_at,
-      ]);
-    }
-    for (const e of data.expenses) {
-      run(
-        `INSERT INTO expenses (id, group_id, title, amount_paise, payer_id, expense_date, notes, split_method, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          e.id,
-          e.group_id,
-          e.title,
-          e.amount_paise,
-          e.payer_id,
-          e.expense_date,
-          e.notes ?? null,
-          e.split_method ?? 'equal',
-          e.created_at,
-          e.updated_at ?? e.created_at,
-        ]
-      );
-    }
-    for (const p of data.expenseParticipants) {
-      run('INSERT INTO expense_participants (id, expense_id, member_id, share_paise) VALUES (?, ?, ?, ?)', [
-        p.id,
-        p.expense_id,
-        p.member_id,
-        p.share_paise,
-      ]);
-    }
-    for (const s of data.settlements) {
-      run(
-        `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount_paise, completed, settled_date, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [s.id, s.group_id, s.from_member_id, s.to_member_id, s.amount_paise, s.completed ? 1 : 0, s.settled_date ?? null, s.created_at]
-      );
-    }
-  });
-  await persist();
+  const groupsPayload = data.groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    description: g.description ?? null,
+    created_by: g.created_by ?? 'Unknown',
+    created_at: g.created_at,
+  }));
+  if (groupsPayload.length) assertNoError((await supabase.from('groups').insert(groupsPayload)).error);
+
+  const membersPayload = data.members.map((m) => ({
+    id: m.id,
+    group_id: m.group_id,
+    name: m.name,
+    created_at: m.created_at,
+  }));
+  if (membersPayload.length) assertNoError((await supabase.from('members').insert(membersPayload)).error);
+
+  const expensesPayload = data.expenses.map((e) => ({
+    id: e.id,
+    group_id: e.group_id,
+    title: e.title,
+    amount_paise: e.amount_paise,
+    payer_id: e.payer_id,
+    expense_date: e.expense_date,
+    notes: e.notes ?? null,
+    split_method: e.split_method ?? 'equal',
+    created_by: e.created_by ?? 'Unknown',
+    created_at: e.created_at,
+    updated_at: e.updated_at ?? e.created_at,
+  }));
+  if (expensesPayload.length) assertNoError((await supabase.from('expenses').insert(expensesPayload)).error);
+
+  const participantsPayload = data.expenseParticipants.map((p) => ({
+    id: p.id,
+    expense_id: p.expense_id,
+    member_id: p.member_id,
+    share_paise: p.share_paise,
+  }));
+  if (participantsPayload.length) assertNoError((await supabase.from('expense_participants').insert(participantsPayload)).error);
+
+  const settlementsPayload = data.settlements.map((s) => ({
+    id: s.id,
+    group_id: s.group_id,
+    from_member_id: s.from_member_id,
+    to_member_id: s.to_member_id,
+    amount_paise: s.amount_paise,
+    completed: !!s.completed,
+    settled_date: s.settled_date ?? null,
+    created_by: s.created_by ?? 'Unknown',
+    created_at: s.created_at,
+  }));
+  if (settlementsPayload.length) assertNoError((await supabase.from('settlements').insert(settlementsPayload)).error);
 }

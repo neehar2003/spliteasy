@@ -31,18 +31,22 @@ export default function SettingsPage() {
     }
   }
 
-  function handleExport() {
-    const data = exportBackupData();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `spliteasy-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    toast.success('Backup downloaded.');
+  async function handleExport() {
+    try {
+      const data = await exportBackupData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `spliteasy-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Backup downloaded.');
+    } catch (err) {
+      toast.error(err.message);
+    }
   }
 
   async function handleImportFile(e) {
@@ -82,7 +86,7 @@ export default function SettingsPage() {
       <div className="page-header">
         <div>
           <h1>Settings</h1>
-          <p className="page-subtitle">Your data, your browser. SplitEasy has no server or account — everything lives locally.</p>
+          <p className="page-subtitle">Shared by everyone using this app. There's no login — people are identified by the name they type below.</p>
         </div>
       </div>
 
@@ -100,9 +104,9 @@ export default function SettingsPage() {
       <div className="card">
         <h3 className="section-title">Data & privacy</h3>
         <p className="hint" style={{ marginTop: -6 }}>
-          All groups, expenses, and settlements are stored entirely in this browser (SQLite running via WebAssembly, persisted
-          to IndexedDB). Nothing is sent to any server. Data does not sync between devices or browsers — use the export/import
-          below to move it, or back it up before clearing your browser's site data.
+          All groups, expenses, and settlements are stored in a shared database (Supabase/Postgres) that every person using
+          this app's link can read and write — there's no login or per-person isolation. Use the export/import below to keep
+          an offline copy.
         </p>
 
         <div className="flex-wrap-gap" style={{ marginTop: 16 }}>
@@ -118,7 +122,7 @@ export default function SettingsPage() {
 
       <div className="card" style={{ borderColor: 'var(--color-danger-soft)' }}>
         <h3 className="section-title" style={{ color: 'var(--color-danger)' }}><ShieldAlert size={16} style={{ verticalAlign: -2 }} /> Danger zone</h3>
-        <p className="hint" style={{ marginTop: -6 }}>Permanently delete every group, member, expense, and settlement. This cannot be undone.</p>
+        <p className="hint" style={{ marginTop: -6 }}>Permanently delete every group, member, expense, and settlement for everyone sharing this app. This cannot be undone.</p>
         <button className="btn btn-danger" onClick={() => setShowReset(true)}>
           <Trash2 size={16} /> Reset all data
         </button>
