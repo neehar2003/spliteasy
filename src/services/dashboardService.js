@@ -1,5 +1,6 @@
 import { listGroups, listMembers } from './groupService';
 import { listExpenses } from './expenseService';
+import { listSettlements } from './settlementService';
 import { calculateBalances, totalExpenses } from '../algorithms/calculateBalances';
 import { getCurrentUserName } from './settingsService';
 
@@ -20,7 +21,11 @@ export async function getDashboardSummary() {
   const recentExpenses = [];
 
   for (const group of groups) {
-    const [members, expenses] = await Promise.all([listMembers(group.id), listExpenses(group.id)]);
+    const [members, expenses, settlements] = await Promise.all([
+      listMembers(group.id),
+      listExpenses(group.id),
+      listSettlements(group.id),
+    ]);
     totalExpenseAmount += totalExpenses(expenses);
 
     for (const e of expenses) {
@@ -31,12 +36,12 @@ export async function getDashboardSummary() {
     const me = members.find((m) => m.name.toLowerCase() === currentUserName.toLowerCase());
     if (!me) continue;
 
-    const balances = calculateBalances(members, expenses, []);
+    const balances = calculateBalances(members, expenses, settlements);
     const myBalance = balances.get(me.id);
     if (!myBalance) continue;
     myPaid += myBalance.paid;
-    if (myBalance.net < 0) myOwed += -myBalance.net;
-    if (myBalance.net > 0) owedToMe += myBalance.net;
+    if (myBalance.afterSettlements < 0) myOwed += -myBalance.afterSettlements;
+    if (myBalance.afterSettlements > 0) owedToMe += myBalance.afterSettlements;
   }
 
   recentExpenses.sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt?.localeCompare(a.createdAt));
