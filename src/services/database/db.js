@@ -1,5 +1,5 @@
 // Shared data layer backed by Supabase (Postgres). There is no local
-// database anymore — every read and write goes over the network to the
+// database anymore - every read and write goes over the network to the
 // same project, so data is shared across every browser/device that uses
 // this app. There is no auth: rows are attributed by a free-text name
 // (see settingsService) rather than a logged-in account.

@@ -7,7 +7,7 @@ import { getCurrentUserName } from './settingsService';
 /**
  * Aggregates totals across every group for the dashboard. Since the app has
  * no login, the "current user" is matched by display name (case-insensitive)
- * against each group's member list — a member named the same as the
+ * against each group's member list - a member named the same as the
  * configured user name is treated as "me" in that group.
  */
 export async function getDashboardSummary() {

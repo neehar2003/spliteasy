@@ -1,4 +1,4 @@
-// "Who am I" is a per-browser display name, not an account — it only decides
+// "Who am I" is a per-browser display name, not an account - it only decides
 // which member row in a shared group is matched as "me" for dashboard totals
 // (see dashboardService). Since it's local to this browser, it's kept in
 // localStorage rather than the shared Supabase database.

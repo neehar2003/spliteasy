@@ -92,7 +92,7 @@ export async function renameMember(memberId, name) {
 
 /**
  * A member can only be removed if they are not referenced by any expense
- * (as payer or participant) or settlement — removing them would otherwise
+ * (as payer or participant) or settlement - removing them would otherwise
  * invalidate existing financial records.
  */
 export async function memberHasRecords(memberId) {

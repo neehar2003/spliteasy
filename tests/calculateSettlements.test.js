@@ -66,7 +66,7 @@ describe('calculateSettlements', () => {
   });
 
   it('handles rounding: three-way split of an odd amount loses no money', () => {
-    // 100 paise split 3 ways: 34, 33, 33 — verify settlement still balances exactly.
+    // 100 paise split 3 ways: 34, 33, 33 - verify settlement still balances exactly.
     const expenses = [
       expense({ amountPaise: 100, payerId: 'a', participants: [
         { memberId: 'a', sharePaise: 34 }, { memberId: 'b', sharePaise: 33 }, { memberId: 'c', sharePaise: 33 },
@@ -82,7 +82,7 @@ describe('calculateSettlements', () => {
     // or a->b 50 then b->c 20 (2 txns) -- both are 2, minimum is 2, not 3.
     const balances = [-50, 30, 20];
     const result = minTransactions(balances);
-    expect(result.length).toBe(2); // not 3 — a routes directly to b and c
+    expect(result.length).toBe(2); // not 3 - a routes directly to b and c
     const total = result.reduce((s, t) => s + t.amount, 0);
     expect(total).toBe(50);
   });

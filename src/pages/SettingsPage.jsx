@@ -86,7 +86,7 @@ export default function SettingsPage() {
       <div className="page-header">
         <div>
           <h1>Settings</h1>
-          <p className="page-subtitle">Shared by everyone using this app. There's no login — people are identified by the name they type below.</p>
+          <p className="page-subtitle">Shared by everyone using this app. There's no login - people are identified by the name they type below.</p>
         </div>
       </div>
 
@@ -105,7 +105,7 @@ export default function SettingsPage() {
         <h3 className="section-title">Data & privacy</h3>
         <p className="hint" style={{ marginTop: -6 }}>
           All groups, expenses, and settlements are stored in a shared database (Supabase/Postgres) that every person using
-          this app's link can read and write — there's no login or per-person isolation. Use the export/import below to keep
+          this app's link can read and write - there's no login or per-person isolation. Use the export/import below to keep
           an offline copy.
         </p>
 

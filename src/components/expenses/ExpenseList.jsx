@@ -56,7 +56,7 @@ export default function ExpenseList({ expenses, memberNameById, groupNameById, o
               </td>
               {groupNameById && <td>{groupNameById[e.groupId]}</td>}
               <td>{e.date}</td>
-              <td>{memberNameById[e.payerId] || '—'}</td>
+              <td>{memberNameById[e.payerId] || '-'}</td>
               <td><span className="badge badge-neutral">{SPLIT_LABELS[e.splitMethod]}</span></td>
               <td className="text-right" style={{ fontWeight: 700 }}>{formatPaise(e.amountPaise)}</td>
               <td>

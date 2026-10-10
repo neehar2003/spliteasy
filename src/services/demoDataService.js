@@ -4,7 +4,7 @@ import { recordSettlement, markCompleted } from './settlementService';
 import { rupeesToPaise } from '../utils/currency';
 import { setCurrentUserName, getCurrentUserName } from './settingsService';
 
-/** Seeds a couple of realistic sample groups. Never runs automatically — only via an explicit "Load demo data" action. */
+/** Seeds a couple of realistic sample groups. Never runs automatically - only via an explicit "Load demo data" action. */
 export async function loadDemoData() {
   if (!getCurrentUserName()) {
     await setCurrentUserName('You');
@@ -60,7 +60,7 @@ export async function loadDemoData() {
   await markCompleted(settlement.id, '2026-01-12');
 
   const flatmates = await createGroup({
-    name: 'Flatmates — Koramangala',
+    name: 'Flatmates - Koramangala',
     description: 'Monthly shared household expenses',
     memberNames: ['You', 'Sanjay', 'Meera'],
   });

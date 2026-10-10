@@ -7,7 +7,7 @@
  *
  * Two strategies are provided:
  *
- *   1. greedyMatch(balances) — O(n log n). At each step, match the member who
+ *   1. greedyMatch(balances) - O(n log n). At each step, match the member who
  *      owes the most with the member who is owed the most, settle the
  *      smaller of the two amounts, and repeat. This always produces a valid,
  *      correct settlement (every balance reaches zero) but is a heuristic:
@@ -20,7 +20,7 @@
  *      current largest debtor/creditor pair instead of searching for exact
  *      subset matches.
  *
- *   2. minTransactions(balances) — exact minimum number of transactions,
+ *   2. minTransactions(balances) - exact minimum number of transactions,
  *      found via DFS + branch-and-bound over the non-zero balances (this is
  *      the classic "optimal account balancing" search). It tries, for the
  *      first unsettled member, every possible match with another member of
@@ -109,7 +109,7 @@ export function minTransactions(balances) {
   // small, which in practice yields direct, intuitive debtor/creditor pairs
   // instead of chaining the group's largest balance through several people.
   // This does not change the number of transactions found (still the true
-  // minimum) — only which of the equally-minimal solutions is returned.
+  // minimum) - only which of the equally-minimal solutions is returned.
   const pairs = balances
     .map((amount, index) => ({ amount, index }))
     .filter((p) => p.amount !== 0)
@@ -122,7 +122,7 @@ export function minTransactions(balances) {
   // At each step, take the first member with a non-zero balance and try
   // settling them against every other member of opposite sign. The pair's
   // balance is fully merged into the other (arr[i] += arr[start]), which may
-  // leave `i` owing/being owed a smaller remainder — handled by recursion.
+  // leave `i` owing/being owed a smaller remainder - handled by recursion.
   //
   // Minimizing transaction count alone can admit multiple equally-minimal
   // solutions that route money through an intermediate member instead of

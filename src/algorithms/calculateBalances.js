@@ -1,6 +1,6 @@
 /**
  * Pure, framework-independent balance calculations. All amounts are integer
- * paise. No React, no SQL — this module only knows about plain data.
+ * paise. No React, no SQL - this module only knows about plain data.
  *
  * Data shapes expected:
  *   members:     [{ id, name }]

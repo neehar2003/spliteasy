@@ -116,7 +116,7 @@ export default function SettlementPanel({ groupId }) {
           The fewest payments needed to settle every outstanding balance.
         </p>
         {data.suggestions.length === 0 ? (
-          <p className="muted">No pending payments — everyone is settled up.</p>
+          <p className="muted">No pending payments - everyone is settled up.</p>
         ) : (
           data.suggestions.map((s, i) => (
             <div className="list-row" key={i}>

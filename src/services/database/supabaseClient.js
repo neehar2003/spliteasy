@@ -1,4 +1,4 @@
-// Shared Supabase client. SplitEasy has no backend of its own — this is the
+// Shared Supabase client. SplitEasy has no backend of its own - this is the
 // one connection every browser tab/device uses to read and write the same
 // Postgres database, so data is actually shared across users.
 import { createClient } from '@supabase/supabase-js';
